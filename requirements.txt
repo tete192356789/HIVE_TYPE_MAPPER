@@ -1,0 +1,6 @@
+sqlalchemy
+pyhive
+thrift
+thrift_sasl
+streamlit
+pandas
