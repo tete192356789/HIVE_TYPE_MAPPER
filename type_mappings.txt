@@ -42,7 +42,7 @@
         "bit varying": "STRING"
     },
     "oracle": {
-        "number": "DECIMAL",  
+        "number": "DOUBLE",  
         "float": "DOUBLE",
         "binary_float": "FLOAT",
         "binary_double": "DOUBLE",
@@ -67,7 +67,8 @@
         "xmltype": "STRING",
         "anydata": "STRING",
         "bfile": "STRING",
-        "boolean": "BOOLEAN"
+        "boolean": "BOOLEAN",
+        "integer":"INT"
     },
     "mysql": {
         "tinyint": "TINYINT",

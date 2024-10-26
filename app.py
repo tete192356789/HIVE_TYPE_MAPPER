@@ -2,6 +2,7 @@ import streamlit as st
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.types import *
 
+import cx_Oracle
 import pandas as pd
 from urllib.parse import quote_plus
 import ast
@@ -14,7 +15,7 @@ def read_file(file_path):
     with open(file_path, 'r') as file:
         content = file.read()
         return ast.literal_eval(content)
-
+#oracle+cx_oracle://SYS:1923@localhost:1521/FREE
 def get_connection_string(db_type, host, port, username, password, database):
     if db_type == "oracle":
         return f"oracle+cx_oracle://{username}:{password}@{host}:{port}/{database}"
@@ -41,16 +42,32 @@ def get_columns(engine, schema, table):
 
 def get_hive_type(db_type , column_type):
     type_mappings = read_file(type_mappings_path)
-    match = re.match(r"\w+\((\d+),\s*(\d+)\)",column_type)
+    column_type = str(column_type.__repr__()).lower()
+    match = re.match(r"\w+\(\s*[^)]+,\s*[^)]*\)",column_type)
     if match:
-        type_name = match.group().split('(')[0]
-        precision = int(match.groups()[0])
-        scale = int(match.groups()[1])
+        dec_info = match.group().split('(')[1].split(',')
+        precision = int(dec_info[0].split('=')[1])
+        try: 
+            scale = int(dec_info[1].split('=')[1].split(')')[0])
+        except:
+            print('scale is (x,)')
+            scale = 0
         if precision > 38:
             precision = 38
         if (precision >0 and precision <= 38) and (scale >=0 and scale <= precision):
             return f"DECIMAL({precision},{scale})"
-    
+        
+    if 'char' in column_type:
+        char_info = column_type.split('(')
+        try:
+            str_len  = int(char_info[1].split(')')[0])
+        except:
+            str_len  = int(char_info[1].split(')')[0].split('=')[1])
+        type_name = char_info[0]
+        return(f"{type_name.upper()}({str_len})")  
+      
+    column_type = column_type.replace('()','')
+
     if db_type in type_mappings and column_type in type_mappings[db_type]:
         return type_mappings[db_type][column_type]
     
@@ -64,7 +81,7 @@ def convert_schema_to_hive(engine, inspector, db_schema, db_type):
     for table_name in inspector.get_table_names(db_schema):
         columns = []
         for column in inspector.get_columns(table_name = table_name, schema = db_schema):
-            hive_type = get_hive_type(db_type,str(column['type']).lower())
+            hive_type = get_hive_type(db_type,column['type'])
             columns.append({
                 'name':column['name'],
                 'hive_type':hive_type,
@@ -237,7 +254,7 @@ def main():
                 try:
                     if st.button("Create Table in Hive"):
                             cursor = st.session_state.connection['hive_conn'].cursor()
-
+                            
                             cursor.execute(st.session_state.connection['hive_ddl'])
                             
                             st.success('executed')

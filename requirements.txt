@@ -4,3 +4,5 @@ thrift
 thrift_sasl
 streamlit
 pandas
+cx-Oracle
+ipykernel
