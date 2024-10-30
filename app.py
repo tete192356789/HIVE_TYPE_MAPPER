@@ -130,9 +130,11 @@ def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_commen
     if db_zone == 'landing':
         ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS landing.{schema_name}_{table_name.lower()} (\n"
         cols= []
+        partition_col_nm = ['ingyer','ingmth','ingday']
         for col in hive_schema[table_name]:
             comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
-            cols.append(f"{col['name']} {col['hive_type']} {comment}")
+            if col['name'] not in partition_col_nm:
+                cols.append(f"{col['name']} {col['hive_type']} {comment}")
             
         ddl += "    "
         ddl += ",\n    ".join(cols)
@@ -183,11 +185,29 @@ def get_hive_conn(hive_host,hive_port,hive_username,hive_password \
     )
     return conn
 
+
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebar"][aria-expanded="true"]{
+            min-width: 1500;
+            max-width: 1500;
+        }
+        [data-testid="stSidebar"][aria-expanded="false"]{
+            min-width: 1500;
+            max-width: 1500;
+         
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 def main():
     st.title("Hadoop Table Migration Tool")
     
-    with st.sidebar:
-        st.radio('select',[1,2])
+
+        
 
     # Use session state to persist values across reruns
     if 'connection' not in st.session_state:
@@ -213,144 +233,180 @@ def main():
             'hive_conn':''
         }
 
-    db_type = st.selectbox("Select Database Type", ["oracle", "sqlserver", "postgres", "mysql"], 
-                           key='db_type')
+ 
+    sqlalchemy_tab, hive_tab = st.tabs(["SQLAlchemy Tab", "Hive Tab"])
+    with sqlalchemy_tab:
+        db_type = st.selectbox("Select Database Type", ["oracle", "sqlserver", "postgres", "mysql"], 
+                        key='db_type')
+        col1, col2 = st.columns(2)
+        with col1:
+            host = st.text_input("Host", key='host')
+            username = st.text_input("Username", key='username')
+            database = st.text_input("Database", key='database')
+        with col2:
+            port = st.text_input("Port", key='port')
+            password = st.text_input("Password", type="password", key='password')
 
-    col1, col2 = st.columns(2)
-    with col1:
-        host = st.text_input("Host", key='host')
-        username = st.text_input("Username", key='username')
-        database = st.text_input("Database", key='database')
-    with col2:
-        port = st.text_input("Port", key='port')
-        password = st.text_input("Password", type="password", key='password')
-
-    if st.button("Connect"):
-        parsed_passwd  = quote_plus(password)
-        connection_string = get_connection_string(db_type, host, port, username, parsed_passwd, database)
-        
-        try:
-            engine = create_engine(connection_string)
-            st.session_state.connection['engine'] = engine
-            st.success("Connected successfully!")
+        if st.button("Connect"):
             
-            # Fetch schemas
-            schemas = get_schemas(engine)
-            st.session_state.connection['schemas'] = schemas
-        except Exception as e:
-            st.error(f"Connection failed: {str(e)}")
-            st.error(f"Connection string (password hidden): {connection_string.replace(password, '*****')}")
+            parsed_passwd  = quote_plus(password)
+            connection_string = get_connection_string(db_type, host, port, username, parsed_passwd, database)
+            
+            try:
+                engine = create_engine(connection_string)
+                st.session_state.connection['engine'] = engine
+                st.success("Connected successfully!")
+                
+                # Fetch schemas
+                schemas = get_schemas(engine)
+                st.session_state.connection['schemas'] = schemas
+            except Exception as e:
+                st.error(f"Connection failed: {str(e)}")
+                st.error(f"Connection string (password hidden): {connection_string.replace(password, '*****')}")
+    with hive_tab:
+        hive_col = st.columns(1)[0]
+        with hive_col:
+            hive_host =st.text_input("hive_host", key='hive_host')
+            hive_port =st.text_input("hive_port", key='hive_port')
+            hive_username =st.text_input("hive_username", key='hive_username')
+            hive_password =st.text_input("hive_password", key='hive_password')
+            hive_database =st.text_input("hive_database", key='hive_database')
+            hive_auth =st.text_input("hive_auth", key='hive_auth')
+        if st.button("Connect to Hive."):
+            print(st.session_state.connection)
+            try:
+                hive_conn = get_hive_conn(hive_host,hive_port,hive_username,hive_password \
+                    ,hive_database, hive_auth)
+                st.session_state.connection['hive_conn'] = hive_conn        
+            except Exception as e:
+                st.error(f"Connection failed: {str(e)}")
+
+                  
 
     # Display schema dropdown if connection is established
     if st.session_state.connection['engine'] is not None:
-        selected_schema = st.selectbox("Select Schema", st.session_state.connection['schemas'], 
-                                       key='selected_schema')
-        
-        if selected_schema:
-            inspector = inspect(st.session_state.connection['engine'])
-            hive_schema = convert_schema_to_hive(st.session_state.connection['engine'], inspector, selected_schema,db_type)
-
-            # Fetch tables for the selected schema
-            tables = get_tables(st.session_state.connection['engine'], selected_schema)
-            st.session_state.connection['tables'] = tables
+        with st.sidebar:
+            selected_schema = st.selectbox("Select Schema", st.session_state.connection['schemas'], 
+                                        key='selected_schema')
             
-            selected_table = st.selectbox("Select Table", tables, key='selected_table')
+            if selected_schema:
+                inspector = inspect(st.session_state.connection['engine'])
+                hive_schema = convert_schema_to_hive(st.session_state.connection['engine'], inspector, selected_schema,db_type)
+
+                # Fetch tables for the selected schema
+                tables = get_tables(st.session_state.connection['engine'], selected_schema)
+                st.session_state.connection['tables'] = tables
+                
+                selected_table = st.selectbox("Select Table", tables, key='selected_table')
+                
+                if selected_table:
+                    # columns = get_columns(st.session_state.connection['engine'], selected_schema, selected_table)
+                    
+                    hive_table_schema = hive_schema[selected_table]
+                    table_comment = inspector.get_table_comment(schema = selected_schema,table_name = selected_table)
+
+                    print('########################')
+                    print(selected_table)
+                    
+                    st.write("Table Structure:")
+                    df = pd.DataFrame(hive_table_schema)
+                    st.dataframe(df)
+                    
             
-            if selected_table:
-                # columns = get_columns(st.session_state.connection['engine'], selected_schema, selected_table)
-                
-                hive_table_schema = hive_schema[selected_table]
-                table_comment = inspector.get_table_comment(schema = selected_schema,table_name = selected_table)
 
-                print('########################')
-                print(selected_table)
-                st.write("Table Structure:")
-                df = pd.DataFrame(hive_table_schema)
-                st.dataframe(df)
-                
-        
-
-                
-                
-                create_tab, insert_tab = st.tabs(["Create Tab", "Insert Tab"])
-                
-                with create_tab:
-                    staging_create_tab, landing_create_tab = st.tabs(["staging Tab", "landing Tab"])
-                    with staging_create_tab:
-                        st.subheader("Create Staging Hive Query")
                     
-                        staging_create_ddl = generate_sql_ddl('staging',hive_schema, selected_schema.lower(), selected_table,table_comment, \
-                                    location = f'/staging/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
-                        s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
-                        st.write("Staging Query:", s)
-                        print(staging_create_ddl)
-                        st.session_state.connection['hive_ddl'] = staging_create_ddl
-                    with landing_create_tab:
-                        st.subheader("Create Landing Hive Query")
-
-                        landing_create_ddl = generate_sql_ddl('landing', hive_schema, selected_schema.lower(), selected_table,table_comment, \
-                                    location = f'/landing/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
-                        create_landing = st.text_area("Hive DDL", landing_create_ddl, height=200,key = 'create_landing')
-                        print(landing_create_ddl)
-                        st.session_state.connection['hive_ddl'] = landing_create_ddl
-                with insert_tab:
-                    st.header("Insert Hive Query")
-
-                    insert_ddl = generate_insert_sql_ddl('landing',hive_schema, selected_schema.lower(), selected_table)
-                    st.text_area("Hive DDL", insert_ddl, height=200)
-                    print(insert_ddl)
-                    st.session_state.connection['hive_ddl'] = insert_ddl
-
-                
-                hive_col = st.columns(1)[0]
-                with hive_col:
-                    hive_host =st.text_input("hive_host", key='hive_host')
-                    hive_port =st.text_input("hive_port", key='hive_port')
-                    hive_username =st.text_input("hive_username", key='hive_username')
-                    hive_password =st.text_input("hive_password", key='hive_password')
-                    hive_database =st.text_input("hive_database", key='hive_database')
-                    hive_auth =st.text_input("hive_auth", key='hive_auth')
-
-                    print('##############')
-                    print(hive_host)
-                    print(hive_port)
-                    print(hive_username)
-                    print(hive_password)
-                    print(hive_database)
-                    print(hive_auth)
-                if st.button("Connect to Hive."):
-                    print(st.session_state.connection)
-                    try:
-                        hive_conn = get_hive_conn(hive_host,hive_port,hive_username,hive_password \
-                            ,hive_database, hive_auth)
                     
-                        # hive_ddl = generate_sql_ddl(hive_schema, selected_schema.lower(), selected_table,table_comment, \
-                        #                     location = f'/staging/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
+                    create_tab, insert_tab = st.tabs(["Create Tab", "Insert Tab"])
+                    
+                    with create_tab:
+                        staging_create_tab, landing_create_tab = st.tabs(["staging Tab", "landing Tab"])
+                        with staging_create_tab:
+                            st.subheader("Create Staging Hive Query")
                         
-                        # st.text_area("Hive DDL", hive_ddl, height=200)
-                        # print(hive_ddl)
-                        # st.session_state.connection['hive_ddl'] = hive_ddl
-                        st.session_state.connection['hive_conn'] = hive_conn
-                        # if st.button("Create Table in Hive"):
-                        #     print(type(st.session_state.connection['hive_conn']))
-                        #     cursor = st.session_state.connection['hive_conn'].cursor()
+                            staging_create_ddl = generate_sql_ddl('staging',hive_schema, selected_schema.lower(), selected_table,table_comment, \
+                                        location = f'/staging/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
+                            s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
+                            st.write("Staging Query:", s)
+                            print(staging_create_ddl)
+                            st.session_state.connection['hive_ddl'] = staging_create_ddl
+                            try:
+                                if st.session_state.connection['hive_conn'] != '':
+                                    if st.button("Create Table in Hive",key = 'staging_create_ddl_button'):
+                                        cursor = st.session_state.connection['hive_conn'].cursor()
+                                        
+                                        cursor.execute(staging_create_ddl)
+                                        
+                                        st.success('executed')
+                            except Exception as e:
+                                st.error(f"button failed {str(e)}")
+                        with landing_create_tab:
+                            st.subheader("Create Landing Hive Query")
 
-                        #     cursor.execute('show databases;')
-                        #     res = cursor.fetchall()
-                        #     print(res)
-                        #     st.warning('executed')
+                            landing_create_ddl = generate_sql_ddl('landing', hive_schema, selected_schema.lower(), selected_table,table_comment, \
+                                        location = f'/landing/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
+                            create_landing = st.text_area("Hive DDL", landing_create_ddl, height=200,key = 'create_landing')
+                            print(landing_create_ddl)
+                            st.session_state.connection['hive_ddl'] = landing_create_ddl
+                            try:
+                                if st.session_state.connection['hive_conn'] != '':
+                                    if st.button("Create Table in Hive",key ='landing_create_ddl_button'):
+                                        cursor = st.session_state.connection['hive_conn'].cursor()
+                                        
+                                        cursor.execute(landing_create_ddl)
+                                        
+                                        st.success('executed')
+                            except Exception as e:
+                                st.error(f"button failed {str(e)}")
+                    with insert_tab:
+                        st.header("Insert Hive Query")
+
+                        insert_ddl = generate_insert_sql_ddl('landing',hive_schema, selected_schema.lower(), selected_table)
+                        st.text_area("Hive DDL", insert_ddl, height=200)
+                        print(insert_ddl)
+                        st.session_state.connection['hive_ddl'] = insert_ddl
+
+                        try:
+                            if st.session_state.connection['hive_conn'] != '':
+                                if st.button("Create Table in Hive",key ='insert_ddl_button'):
+                                    cursor = st.session_state.connection['hive_conn'].cursor()
+                                    
+                                    cursor.execute(insert_ddl)
+                                    
+                                    st.success('executed')
+                        except Exception as e:
+                            st.error(f"button failed {str(e)}")
+            
+                    
+                # hive_col = st.columns(1)[0]
+                # with hive_col:
+                #     hive_host =st.text_input("hive_host", key='hive_host')
+                #     hive_port =st.text_input("hive_port", key='hive_port')
+                #     hive_username =st.text_input("hive_username", key='hive_username')
+                #     hive_password =st.text_input("hive_password", key='hive_password')
+                #     hive_database =st.text_input("hive_database", key='hive_database')
+                #     hive_auth =st.text_input("hive_auth", key='hive_auth')
+
+                  
+                # if st.button("Connect to Hive."):
+                #     print(st.session_state.connection)
+                #     try:
+                #         hive_conn = get_hive_conn(hive_host,hive_port,hive_username,hive_password \
+                #             ,hive_database, hive_auth)
+                    
+                      
+                #         st.session_state.connection['hive_conn'] = hive_conn
+                     
+                #     except Exception as e:
+                #         st.error(f"Connection failed: {str(e)}")
+                # try:
+                #     if st.button("Create Table in Hive"):
+                #             cursor = st.session_state.connection['hive_conn'].cursor()
                             
-                    except Exception as e:
-                        st.error(f"Connection failed: {str(e)}")
-                try:
-                    if st.button("Create Table in Hive"):
-                            cursor = st.session_state.connection['hive_conn'].cursor()
+                #             cursor.execute(st.session_state.connection['hive_ddl'])
                             
-                            cursor.execute(st.session_state.connection['hive_ddl'])
-                            
-                            st.success('executed')
-                except Exception as e:
-                    st.error(f"button failed {str(e)}")
+                #             st.success('executed')
+                # except Exception as e:
+                #     st.error(f"button failed {str(e)}")
                     
                 
                     
