@@ -111,7 +111,7 @@
         "geometrycollection": "STRING"
     },
     "sqlserver": {
-        "int": "INT",
+        "integer": "INT",
         "bigint": "BIGINT",
         "smallint": "SMALLINT",
         "tinyint": "TINYINT",

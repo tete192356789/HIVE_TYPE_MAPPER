@@ -19,12 +19,12 @@ def read_file(file_path):
 def get_connection_string(db_type, host, port, username, password, database):
     if db_type == "oracle":
         return f"oracle+cx_oracle://{username}:{password}@{host}:{port}/{database}"
-    elif db_type == "mssql":
-        return f"mssql+pyodbc://{username}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
+    elif db_type == "sqlserver":
+        return f"mssql+pymssql://{username}:{password}@{host}:{port}/{database}"
     elif db_type == "postgres":
         return f"postgresql://{username}:{password}@{host}:{port}/{database}"
     elif db_type == "mysql":
-        return f"mysql+pymysql://{username}:{password}@{host}:{port}/{database}"
+        return f"mysql+pymssql://{username}:{password}@{host}:{port}/{database}"
 
 def get_schemas(engine):
     inspector = inspect(engine)
@@ -43,31 +43,49 @@ def get_columns(engine, schema, table):
 def get_hive_type(db_type , column_type):
     type_mappings = read_file(type_mappings_path)
     column_type = str(column_type.__repr__()).lower()
+    print(column_type)
     match = re.match(r"\w+\(\s*[^)]+,\s*[^)]*\)",column_type)
+    char_match = re.findall(r'length=(\s*)(\d+)',column_type)
+    print(char_match)
+    if char_match:
+        # char_info = column_type.split('(')
+        # try:
+        #     str_len  = int(char_info[1].split(')')[0])
+        # except:
+        #     str_len  = int(char_info[1].split(')')[0].split('=')[1])
+        # type_name = char_info[0]
+        # return(f"{type_name.upper()}({str_len})")  
+        base = column_type.split('(')[0]
+        if base == 'nvarchar':
+            base = 'varchar'
+        length = char_match[0][1]
+        return f"{base.upper()}({length})"
+        
     if match:
         dec_info = match.group().split('(')[1].split(',')
-        precision = int(dec_info[0].split('=')[1])
-        try: 
-            scale = int(dec_info[1].split('=')[1].split(')')[0])
+        try:
+            precision = int(dec_info[0])
         except:
-            print('scale is (x,)')
+            precision = int(dec_info[0].split('=')[1])
+        
+        try:
+            try:
+                scale = int(dec_info[1].split(')')[0])
+            except:
+                scale = int(dec_info[1].split('=')[1].split(')')[0])
+        except:
             scale = 0
+            
         if precision > 38:
             precision = 38
         if (precision >0 and precision <= 38) and (scale >=0 and scale <= precision):
             return f"DECIMAL({precision},{scale})"
-        
-    if 'char' in column_type:
-        char_info = column_type.split('(')
-        try:
-            str_len  = int(char_info[1].split(')')[0])
-        except:
-            str_len  = int(char_info[1].split(')')[0].split('=')[1])
-        type_name = char_info[0]
-        return(f"{type_name.upper()}({str_len})")  
-      
-    column_type = column_type.replace('()','')
 
+    
+
+    
+    column_type = column_type.split('(')[0]
+    
     if db_type in type_mappings and column_type in type_mappings[db_type]:
         return type_mappings[db_type][column_type]
     
@@ -91,23 +109,67 @@ def convert_schema_to_hive(engine, inspector, db_schema, db_type):
 
     return schema
 
-def generate_sql_ddl(hive_schema, schema_name, table_name, table_comment, location = '/staging' , stored_as = 'PARQUET'):
-    ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS staging.{schema_name}_{table_name.lower()} (\n"
-    cols= []
-    for col in hive_schema[table_name]:
-        comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
-        cols.append(f"{col['name']} {col['hive_type']} {comment}")
-        
-    ddl += "    "
-    ddl += ",\n    ".join(cols)
-    ddl += "\n)\n"
+def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_comment, location , stored_as = 'PARQUET'):
+    
+    if db_zone == 'staging':
+        ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS staging.{schema_name}_{table_name.lower()} (\n"
+        cols= []
+        for col in hive_schema[table_name]:
+            comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
+            cols.append(f"{col['name']} {col['hive_type']} {comment}")
+            
+        ddl += "    "
+        ddl += ",\n    ".join(cols)
+        ddl += "\n)\n"
 
-    ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
-    ddl += f"STORED AS {stored_as}\n"
-    ddl += f"LOCATION '{location}'"
+        ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
+        ddl += f"STORED AS {stored_as}\n"
+        ddl += f"LOCATION '{location}'"
+        return ddl
+
+    if db_zone == 'landing':
+        ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS landing.{schema_name}_{table_name.lower()} (\n"
+        cols= []
+        for col in hive_schema[table_name]:
+            comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
+            cols.append(f"{col['name']} {col['hive_type']} {comment}")
+            
+        ddl += "    "
+        ddl += ",\n    ".join(cols)
+        ddl += "\n)\n"
+
+        ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
+        ddl += f"PARTITIONED BY (ingyer DECIMAL(4,0),ingmth DECIMAL(2,0),ingday DECIMAL(2,0))\n"
+        ddl += f"STORED AS {stored_as}\n"
+        ddl += f"LOCATION '{location}'"
+        return ddl
     
-    
-    return ddl
+def generate_insert_sql_ddl(db_zone, hive_schema, schema_name, table_name):
+
+    if db_zone == 'staging':
+        ddl = f"INSERT INTO staging.{schema_name}_{table_name.lower()} \n"
+        cols= []
+        for col in hive_schema[table_name]:
+            cols.append(f"{col['name']} {col['hive_type']} {comment}")
+        ddl += "    "
+        ddl += ",\n    ".join(cols)
+        ddl += "\n)\n"
+        
+        ddl += "VALUES \n"
+
+
+    if db_zone == 'landing':
+        ddl = f"INSERT INTO landing.{schema_name}_{table_name.lower()} PARTITION(ingyer, ingmth, ingday)\n"
+        ddl += f"SELECT (\n"
+        cols= []
+        for col in hive_schema[table_name]:
+            comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
+            cols.append(f"{col['name']} {col['hive_type']} {comment}")
+        ddl += "    "
+        ddl += ",\n    ".join(cols)
+        ddl += "\n)\n"
+        ddl += f"FROM staging.{schema_name}_{table_name.lower()}"
+        return ddl
 
 def get_hive_conn(hive_host,hive_port,hive_username,hive_password \
                   ,hive_database, hive_auth):
@@ -124,6 +186,9 @@ def get_hive_conn(hive_host,hive_port,hive_username,hive_password \
 def main():
     st.title("Hadoop Table Migration Tool")
     
+    with st.sidebar:
+        st.radio('select',[1,2])
+
     # Use session state to persist values across reruns
     if 'connection' not in st.session_state:
         st.session_state.connection = {
@@ -203,14 +268,40 @@ def main():
                 df = pd.DataFrame(hive_table_schema)
                 st.dataframe(df)
                 
-                # conn = hive.Connection(
-                #     host='192.168.170.224', 
-                #     port=10000, 
-                #     username='hiveadmin',
-                #     password='P@ssw0rdsit', 
-                #     database='default',
-                #     auth='LDAP'
-                # )
+        
+
+                
+                
+                create_tab, insert_tab = st.tabs(["Create Tab", "Insert Tab"])
+                
+                with create_tab:
+                    staging_create_tab, landing_create_tab = st.tabs(["staging Tab", "landing Tab"])
+                    with staging_create_tab:
+                        st.subheader("Create Staging Hive Query")
+                    
+                        staging_create_ddl = generate_sql_ddl('staging',hive_schema, selected_schema.lower(), selected_table,table_comment, \
+                                    location = f'/staging/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
+                        s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
+                        st.write("Staging Query:", s)
+                        print(staging_create_ddl)
+                        st.session_state.connection['hive_ddl'] = staging_create_ddl
+                    with landing_create_tab:
+                        st.subheader("Create Landing Hive Query")
+
+                        landing_create_ddl = generate_sql_ddl('landing', hive_schema, selected_schema.lower(), selected_table,table_comment, \
+                                    location = f'/landing/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
+                        create_landing = st.text_area("Hive DDL", landing_create_ddl, height=200,key = 'create_landing')
+                        print(landing_create_ddl)
+                        st.session_state.connection['hive_ddl'] = landing_create_ddl
+                with insert_tab:
+                    st.header("Insert Hive Query")
+
+                    insert_ddl = generate_insert_sql_ddl('landing',hive_schema, selected_schema.lower(), selected_table)
+                    st.text_area("Hive DDL", insert_ddl, height=200)
+                    print(insert_ddl)
+                    st.session_state.connection['hive_ddl'] = insert_ddl
+
+                
                 hive_col = st.columns(1)[0]
                 with hive_col:
                     hive_host =st.text_input("hive_host", key='hive_host')
@@ -233,12 +324,12 @@ def main():
                         hive_conn = get_hive_conn(hive_host,hive_port,hive_username,hive_password \
                             ,hive_database, hive_auth)
                     
-                        hive_ddl = generate_sql_ddl(hive_schema, selected_schema.lower(), selected_table,table_comment, \
-                                            location = f'/staging/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
+                        # hive_ddl = generate_sql_ddl(hive_schema, selected_schema.lower(), selected_table,table_comment, \
+                        #                     location = f'/staging/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
                         
-                        st.text_area("Hive DDL", hive_ddl, height=200)
-                        print(hive_ddl)
-                        st.session_state.connection['hive_ddl'] = hive_ddl
+                        # st.text_area("Hive DDL", hive_ddl, height=200)
+                        # print(hive_ddl)
+                        # st.session_state.connection['hive_ddl'] = hive_ddl
                         st.session_state.connection['hive_conn'] = hive_conn
                         # if st.button("Create Table in Hive"):
                         #     print(type(st.session_state.connection['hive_conn']))
