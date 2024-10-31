@@ -8,9 +8,10 @@ from urllib.parse import quote_plus
 import ast
 import re
 from pyhive import hive
+import os
 
-type_mappings_path = '/Users/nachanon/projects/hive_datatype/type_mappings.txt'
-stg_ldg_type_mappings_path = '/Users/nachanon/projects/hive_datatype/stg_ldg_type_mappings.txt'
+
+type_mappings_path = f'{os.path.dirname(os.path.abspath(__file__))}/type_mappings.txt'
 def read_file(file_path):
     with open(file_path, 'r') as file:
         content = file.read()
