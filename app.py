@@ -10,7 +10,7 @@ import re
 from pyhive import hive
 
 type_mappings_path = '/Users/nachanon/projects/hive_datatype/type_mappings.txt'
-
+stg_ldg_type_mappings_path = '/Users/nachanon/projects/hive_datatype/stg_ldg_type_mappings.txt'
 def read_file(file_path):
     with open(file_path, 'r') as file:
         content = file.read()
@@ -41,25 +41,26 @@ def get_columns(engine, schema, table):
 
 
 def get_hive_type(db_type , column_type):
+
     type_mappings = read_file(type_mappings_path)
     column_type = str(column_type.__repr__()).lower()
     print(column_type)
     match = re.match(r"\w+\(\s*[^)]+,\s*[^)]*\)",column_type)
-    char_match = re.findall(r'length=(\s*)(\d+)',column_type)
-    print(char_match)
-    if char_match:
-        # char_info = column_type.split('(')
-        # try:
-        #     str_len  = int(char_info[1].split(')')[0])
-        # except:
-        #     str_len  = int(char_info[1].split(')')[0].split('=')[1])
-        # type_name = char_info[0]
-        # return(f"{type_name.upper()}({str_len})")  
-        base = column_type.split('(')[0]
-        if base == 'nvarchar':
-            base = 'varchar'
-        length = char_match[0][1]
-        return f"{base.upper()}({length})"
+    # char_match = re.findall(r'length=(\s*)(\d+)',column_type)
+    # print(char_match)
+    # if char_match:
+    #     # char_info = column_type.split('(')
+    #     # try:
+    #     #     str_len  = int(char_info[1].split(')')[0])
+    #     # except:
+    #     #     str_len  = int(char_info[1].split(')')[0].split('=')[1])
+    #     # type_name = char_info[0]
+    #     # return(f"{type_name.upper()}({str_len})")  
+    #     base = column_type.split('(')[0]
+    #     if base == 'nvarchar':
+    #         base = 'varchar'
+    #     length = char_match[0][1]
+    #     return f"{base.upper()}({length})"
         
     if match:
         dec_info = match.group().split('(')[1].split(',')
@@ -110,14 +111,17 @@ def convert_schema_to_hive(engine, inspector, db_schema, db_type):
     return schema
 
 def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_comment, location , stored_as = 'PARQUET'):
-    
+    date_cols = ['TIMESTAMP','DATE']
     if db_zone == 'staging':
         ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS staging.{schema_name}_{table_name.lower()} (\n"
         cols= []
-        list_cols = {'ingdte':'TIMESTAMP','ingyer':'DECIMAL(4,0)','ingmth': 'DECIMAL(2,0)','ingday': 'DECIMAL(2,0)'}
+        list_cols = {'ingdte':'STRING','ingyer':'DECIMAL(4,0)','ingmth': 'DECIMAL(2,0)','ingday': 'DECIMAL(2,0)'}
         for col in hive_schema[table_name]:
             comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
-            cols.append(f"{col['name']} {col['hive_type']} {comment}")
+            if col['hive_type'] in date_cols:
+                cols.append(f"{col['name']} STRING {comment}")
+            else:
+                cols.append(f"{col['name']} {col['hive_type']} {comment}")
         for col in list_cols:
             cols.append(f"{col} {list_cols[col]}")
         ddl += "    "
@@ -132,12 +136,14 @@ def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_commen
     if db_zone == 'landing':
         ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS landing.{schema_name}_{table_name.lower()} (\n"
         cols= []
-        partition_col_nm = ['ingyer','ingmth','ingday']
+        partition_col_nm = ['ingdte','ingyer','ingmth','ingday']
         for col in hive_schema[table_name]:
             comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
-            if col['name'] not in partition_col_nm:
+            if col['name'] not in partition_col_nm and col['hive_type'] not in date_cols:
                 cols.append(f"{col['name']} {col['hive_type']} {comment}")
-            
+            if col['hive_type']  in date_cols:
+                cols.append(f"{col['name']} STRING {comment}")
+        cols.append(f"{partition_col_nm[0]} STRING")
         ddl += "    "
         ddl += ",\n    ".join(cols)
         ddl += "\n)\n"
