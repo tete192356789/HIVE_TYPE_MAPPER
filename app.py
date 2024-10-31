@@ -28,7 +28,7 @@ def get_connection_string(db_type, host, port, username, password, database):
 
 def get_schemas(engine):
     inspector = inspect(engine)
-    return inspector.get_schema_names()
+    return [schema for schema in inspector.get_schema_names() if schema != 'information_schema']
 
 def get_tables(engine, schema):
     inspector = inspect(engine)
@@ -114,10 +114,12 @@ def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_commen
     if db_zone == 'staging':
         ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS staging.{schema_name}_{table_name.lower()} (\n"
         cols= []
+        list_cols = {'ingdte':'TIMESTAMP','ingyer':'DECIMAL(4,0)','ingmth': 'DECIMAL(2,0)','ingday': 'DECIMAL(2,0)'}
         for col in hive_schema[table_name]:
             comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
             cols.append(f"{col['name']} {col['hive_type']} {comment}")
-            
+        for col in list_cols:
+            cols.append(f"{col} {list_cols[col]}")
         ddl += "    "
         ddl += ",\n    ".join(cols)
         ddl += "\n)\n"
@@ -148,16 +150,19 @@ def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_commen
     
 def generate_insert_sql_ddl(db_zone, hive_schema, schema_name, table_name):
 
-    if db_zone == 'staging':
-        ddl = f"INSERT INTO staging.{schema_name}_{table_name.lower()} \n"
-        cols= []
-        for col in hive_schema[table_name]:
-            cols.append(f"{col['name']} {col['hive_type']} {comment}")
-        ddl += "    "
-        ddl += ",\n    ".join(cols)
-        ddl += "\n)\n"
+    # if db_zone == 'staging':
+    #     ddl = f"INSERT INTO staging.{schema_name}_{table_name.lower()} \n"
+    #     cols= []
+    #     list_cols = {'ingdte':'DECIMAL(2,0)','ingyer':'DECIMAL(2,0)','ingmth': 'DECIMAL(2,0)','ingday': 'DECIMAL(2,0)'}
+    #     for col in hive_schema[table_name]:
+    #         cols.append(f"{col['name']} {col['hive_type']} {comment}")
+    #     for col in list_cols:
+    #         cols.append(f"{col} {list_cols[col]}")
+    #     ddl += "    "
+    #     ddl += ",\n    ".join(cols)
+    #     ddl += "\n)\n"
         
-        ddl += "VALUES \n"
+    #     ddl += "VALUES \n"
 
 
     if db_zone == 'landing':
@@ -273,7 +278,6 @@ def main():
             hive_database =st.text_input("hive_database", key='hive_database')
             hive_auth =st.text_input("hive_auth", key='hive_auth')
         if st.button("Connect to Hive."):
-            print(st.session_state.connection)
             try:
                 hive_conn = get_hive_conn(hive_host,hive_port,hive_username,hive_password \
                     ,hive_database, hive_auth)
@@ -325,9 +329,8 @@ def main():
                         
                             staging_create_ddl = generate_sql_ddl('staging',hive_schema, selected_schema.lower(), selected_table,table_comment, \
                                         location = f'/staging/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
-                            s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
-                            st.write("Staging Query:", s)
-                            print(staging_create_ddl)
+                            # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
+                            st.code(staging_create_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = staging_create_ddl
                             try:
                                 if st.session_state.connection['hive_conn'] != '':
@@ -344,8 +347,8 @@ def main():
 
                             landing_create_ddl = generate_sql_ddl('landing', hive_schema, selected_schema.lower(), selected_table,table_comment, \
                                         location = f'/landing/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
-                            create_landing = st.text_area("Hive DDL", landing_create_ddl, height=200,key = 'create_landing')
-                            print(landing_create_ddl)
+                            # create_landing = st.text_area("Hive DDL", landing_create_ddl, height=200,key = 'create_landing')
+                            st.code(landing_create_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = landing_create_ddl
                             try:
                                 if st.session_state.connection['hive_conn'] != '':
@@ -361,8 +364,8 @@ def main():
                         st.header("Insert Hive Query")
 
                         insert_ddl = generate_insert_sql_ddl('landing',hive_schema, selected_schema.lower(), selected_table)
-                        st.text_area("Hive DDL", insert_ddl, height=200)
-                        print(insert_ddl)
+                        # st.text_area("Hive DDL", insert_ddl, height=200)
+                        st.code(insert_ddl, language="sql")
                         st.session_state.connection['hive_ddl'] = insert_ddl
 
                         try:
