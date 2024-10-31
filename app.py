@@ -38,7 +38,12 @@ def get_columns(engine, schema, table):
     inspector = inspect(engine)
     return inspector.get_columns(table, schema=schema)
 
-
+def download_hive_ddl(label, data, file_name):
+    dl_btn = st.download_button(
+        label=label,
+        data=data,
+        file_name=file_name)
+    return dl_btn
 
 def get_hive_type(db_type , column_type):
 
@@ -112,10 +117,11 @@ def convert_schema_to_hive(engine, inspector, db_schema, db_type):
 
 def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_comment, location , stored_as = 'PARQUET'):
     date_cols = ['TIMESTAMP','DATE']
+    list_cols = {'ingdte':'STRING','ingyer':'DECIMAL(4,0)','ingmth': 'DECIMAL(2,0)','ingday': 'DECIMAL(2,0)'}
     if db_zone == 'staging':
         ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS staging.{schema_name}_{table_name.lower()} (\n"
         cols= []
-        list_cols = {'ingdte':'STRING','ingyer':'DECIMAL(4,0)','ingmth': 'DECIMAL(2,0)','ingday': 'DECIMAL(2,0)'}
+        
         for col in hive_schema[table_name]:
             comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
             if col['hive_type'] in date_cols:
@@ -154,7 +160,32 @@ def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_commen
         ddl += f"LOCATION '{location}'"
         return ddl
     
-def generate_insert_sql_ddl(db_zone, hive_schema, schema_name, table_name):
+    if db_zone == 'gold':
+        ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS {schema_name}.{table_name.lower()} (\n"
+        cols= []
+        partition_col_nm = ['ingdte','ingyer','ingmth','ingday']
+        for col in hive_schema[table_name]:
+            comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
+            if col['name'] not in partition_col_nm :
+                cols.append(f"{col['name']} {col['hive_type']} {comment}")
+
+        for col in list_cols:
+            if col == 'ingdte':
+                cols.append(f"{col} TIMESTAMP")
+            else:    
+                cols.append(f"{col} {list_cols[col]}")
+        ddl += "    "
+        ddl += ",\n    ".join(cols)
+        ddl += "\n)\n"
+
+        ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
+        ddl += f"PARTITIONED BY ()\n"
+        ddl += f"STORED AS {stored_as}\n"
+        ddl += f"LOCATION '{location}'"
+        return ddl
+
+    
+def generate_insert_sql_ddl(db_zone, hive_schema, schema_name, table_name,insert_method ='Full Refresh'):
 
     # if db_zone == 'staging':
     #     ddl = f"INSERT INTO staging.{schema_name}_{table_name.lower()} \n"
@@ -170,19 +201,122 @@ def generate_insert_sql_ddl(db_zone, hive_schema, schema_name, table_name):
         
     #     ddl += "VALUES \n"
 
-
+    ing_cols = ['ingdte','ingyer','ingmth','ingday']
+    date_cols = ['TIMESTAMP','DATE']
     if db_zone == 'landing':
-        ddl = f"INSERT INTO landing.{schema_name}_{table_name.lower()} PARTITION(ingyer, ingmth, ingday)\n"
-        ddl += f"SELECT (\n"
+        ddl = "set hive.exec.dynamic.partition=true;\n"
+        ddl += "set hive.exec.dynamic.partition.mode=nonstrict;\n"
+        ddl += "set hive.merge.smallfiles.avgsize=1280000000;\n"
+        ddl += f"INSERT INTO landing.{schema_name}_{table_name.lower()} PARTITION(ingyer, ingmth, ingday)\n"
+        ddl += f"SELECT \n"
         cols= []
         for col in hive_schema[table_name]:
-            comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
-            cols.append(f"{col['name']} {col['hive_type']} {comment}")
+            cols.append(f"{col['name']}")
+        for col in ing_cols:
+            cols.append(col)    
         ddl += "    "
         ddl += ",\n    ".join(cols)
-        ddl += "\n)\n"
+        ddl += "\n"
         ddl += f"FROM staging.{schema_name}_{table_name.lower()}"
         return ddl
+    
+    if db_zone == 'gold':
+        if insert_method == 'Full Refresh':
+            ddl = "set hive.exec.dynamic.partition=true; \n"
+            ddl += "set hive.exec.dynamic.partition.mode=nonstrict; \n"
+            ddl += "set hive.merge.mapredfiles = true; \n"
+            ddl += "set hive.merge.smallfiles.avgsize=1280000000; \n"
+
+            ddl += f"INSERT OVERWRITE TABLE {schema_name}.{table_name.lower()} PARTITION () \n"
+            ddl += f"SELECT \n"
+
+            cols= []
+            for col in hive_schema[table_name]:
+                if col['hive_type'] in date_cols:
+                    cols.append(f"CAST({col['name']} AS TIMESTAMP)")
+                else:
+                    cols.append(f"{col['name']}")
+
+            for col in ing_cols:
+                if col == 'ingdte':
+                    cols.append(f"CAST({col} AS TIMESTAMP)")
+                else:
+                    cols.append(col)    
+            ddl += "    "
+            ddl += ",\n    ".join(cols)
+            ddl += "\n"
+            ddl += f"FROM landing.{schema_name}_{table_name.lower()} \n"
+            ddl += "WHERE (${LATEST_LANDING_PARTITION})"
+            return ddl
+        
+
+        if insert_method == 'Incremental':
+            ddl = "set mapred.reduce.tasks=-1; \n"
+            ddl += "set hive.exec.dynamic.partition=true; \n"
+            ddl += "set hive.exec.dynamic.partition.mode=nonstrict; \n"
+            ddl += "set hive.exec.max.dynamic.partitions=2048; \n"
+            ddl += "set hive.exec.max.dynamic.partitions.pernode=512; \n"
+            ddl += "set mapreduce.map.memory.mb = 3072; \n"
+            ddl += "set mapreduce.reduce.memory.mb = 3072; \n"
+            ddl += "set hive.merge.mapredfiles = true; \n"
+            ddl += "set hive.merge.smallfiles.avgsize=1280000000; \n"
+            ddl += "set hive.exec.max.created.files=200000; \n"
+            
+            ddl += f"INSERT OVERWRITE TABLE {schema_name}.{table_name.lower()} PARTITION () \n"
+            ddl += "SELECT \n"
+            cols =[]
+            for col in hive_schema[table_name]:
+                cols.append(f"{col['name']}")
+            for col in ing_cols:
+                cols.append(col)  
+            total = len(cols)
+            first  = round(total *(1/3))
+            second = round(total *(2/3))
+            cols.insert(first, '\n')
+            cols.insert(second+1,'\n')
+
+            ddl += "    "
+            ddl += ", ".join(cols)
+            ddl += "\n"
+            
+            ddl += "FROM (\n"
+            ddl += "    SELECT *, ROW_NUMBER() OVER (PARTITION BY  ORDER BY INGDTE DESC) rn"
+            ddl += "    FROM (\n"
+            ddl += "        SELECT \n"
+            ddl += "            "
+            ddl += ", ".join(cols)
+            ddl += "\n"
+
+            ddl += f"       FROM {schema_name}.{table_name.lower()} \n"
+            ddl += "        WHERE ${IMPACTED_PARTITION}\n"
+            ddl += "        UNION ALL\n"
+            ddl += "        SELECT\n"
+            ddl += "            "
+            cols = []
+            for col in hive_schema[table_name]:
+                if col['hive_type'] in date_cols:
+                    cols.append(f"CAST({col['name']} AS TIMESTAMP)")
+                else:
+                    cols.append(f"{col['name']}")
+            for col in ing_cols:
+                if col == 'ingdte':
+                    cols.append(f"CAST({col} AS TIMESTAMP)")
+                else:
+                    cols.append(col)  
+            total = len(cols)
+            first  = round(total *(1/3))
+            second = round(total *(2/3))
+            cols.insert(first, '\n')
+            cols.insert(second+1,'\n')
+            ddl += ", ".join(cols)
+            ddl += "\n"
+            ddl += f"       FROM landing.{schema_name}_{table_name.lower()} \n"
+            ddl += "        WHERE ${LANDING_PARTITION}\n"
+            ddl += "    )t1\n"
+            ddl += ")t2\n"
+            ddl += "WHERE rn=1 \n"
+            ddl += "DISTRIBUTE BY"
+            return ddl
 
 def get_hive_conn(hive_host,hive_port,hive_username,hive_password \
                   ,hive_database, hive_auth):
@@ -216,7 +350,6 @@ st.markdown(
 
 def main():
     st.title("Hadoop Table Migration Tool")
-    
 
         
 
@@ -329,7 +462,7 @@ def main():
                     create_tab, insert_tab = st.tabs(["Create Tab", "Insert Tab"])
                     
                     with create_tab:
-                        staging_create_tab, landing_create_tab = st.tabs(["staging Tab", "landing Tab"])
+                        staging_create_tab, landing_create_tab, gold_create_tab = st.tabs(["staging Tab", "landing Tab", "gold Tab"])
                         with staging_create_tab:
                             st.subheader("Create Staging Hive Query")
                         
@@ -338,6 +471,7 @@ def main():
                             # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
                             st.code(staging_create_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = staging_create_ddl
+                            download_hive_ddl('Download DDL AS Text File', staging_create_ddl, 'staging_create_ddl')
                             try:
                                 if st.session_state.connection['hive_conn'] != '':
                                     if st.button("Create Table in Hive",key = 'staging_create_ddl_button'):
@@ -356,6 +490,7 @@ def main():
                             # create_landing = st.text_area("Hive DDL", landing_create_ddl, height=200,key = 'create_landing')
                             st.code(landing_create_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = landing_create_ddl
+                            download_hive_ddl('Download DDL AS Text File', landing_create_ddl, 'landing_create_ddl')
                             try:
                                 if st.session_state.connection['hive_conn'] != '':
                                     if st.button("Create Table in Hive",key ='landing_create_ddl_button'):
@@ -366,25 +501,89 @@ def main():
                                         st.success('executed')
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
+                        with gold_create_tab:
+                            st.subheader("Create Gold Hive Query")
+                        
+                            gold_create_ddl = generate_sql_ddl('gold',hive_schema, selected_schema.lower(), selected_table,table_comment, \
+                                        location = f'/gold/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
+                            # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
+                            st.code(gold_create_ddl, language="sql")
+                            st.session_state.connection['hive_ddl'] = gold_create_ddl
+                            download_hive_ddl('Download DDL AS Text File', gold_create_ddl, 'gold_create_ddl')
+                            try:
+                                if st.session_state.connection['hive_conn'] != '':
+                                    if st.button("Create Table in Hive",key = 'gold_create_ddl_button'):
+                                        cursor = st.session_state.connection['hive_conn'].cursor()
+                                        
+                                        cursor.execute(gold_create_ddl)
+                                        
+                                        st.success('executed')
+                            except Exception as e:
+                                st.error(f"button failed {str(e)}")
                     with insert_tab:
-                        st.header("Insert Hive Query")
+                        landing_insert_tab , gold_insert_tab= st.tabs(["Landing Insert Tab", "Gold Insert Tab"])
 
-                        insert_ddl = generate_insert_sql_ddl('landing',hive_schema, selected_schema.lower(), selected_table)
-                        # st.text_area("Hive DDL", insert_ddl, height=200)
-                        st.code(insert_ddl, language="sql")
-                        st.session_state.connection['hive_ddl'] = insert_ddl
+                        with landing_insert_tab:
+                            st.header("Insert Hive Query")
 
-                        try:
-                            if st.session_state.connection['hive_conn'] != '':
-                                if st.button("Create Table in Hive",key ='insert_ddl_button'):
-                                    cursor = st.session_state.connection['hive_conn'].cursor()
-                                    
-                                    cursor.execute(insert_ddl)
-                                    
-                                    st.success('executed')
-                        except Exception as e:
-                            st.error(f"button failed {str(e)}")
-            
+                            insert_ddl = generate_insert_sql_ddl('landing',hive_schema, selected_schema.lower(), selected_table)
+                            # st.text_area("Hive DDL", insert_ddl, height=200)
+                            st.code(insert_ddl, language="sql")
+                            st.session_state.connection['hive_ddl'] = insert_ddl
+                            download_hive_ddl('Download DDL AS Text File', insert_ddl, 'insert_ddl')
+                            try:
+                                if st.session_state.connection['hive_conn'] != '':
+                                    if st.button("Create Table in Hive",key ='insert_ddl_button'):
+                                        cursor = st.session_state.connection['hive_conn'].cursor()
+                                        
+                                        cursor.execute(insert_ddl)
+                                        
+                                        st.success('executed')
+                            except Exception as e:
+                                st.error(f"button failed {str(e)}")
+                        
+                        with gold_insert_tab:
+                            radio = st.radio('Select zone to insert.',['Full Refresh','Incremental'],horizontal = True)
+                            if radio == 'Full Refresh':
+                                st.subheader("Insert Full Refresh Gold Hive Query")
+                            
+                                gold_full_insert_ddl = generate_insert_sql_ddl('gold',hive_schema, selected_schema.lower(), selected_table,insert_method="Full Refresh")
+                                
+                                # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
+                                st.code(gold_full_insert_ddl, language="sql")
+                                st.session_state.connection['hive_ddl'] = gold_full_insert_ddl
+                                download_hive_ddl('Download DDL AS Text File', gold_full_insert_ddl, 'gold_full_insert_ddl')
+                                try:
+                                    if st.session_state.connection['hive_conn'] != '':
+                                        if st.button("Create Table in Hive",key = 'gold_full_insert_ddl_button'):
+                                            cursor = st.session_state.connection['hive_conn'].cursor()
+                                            
+                                            cursor.execute(gold_full_insert_ddl)
+                                            
+                                            st.success('executed')
+                                except Exception as e:
+                                    st.error(f"button failed {str(e)}")
+                            else:
+                                st.subheader("Insert Incremental Gold Hive Query")
+                            
+                                gold_incremental_insert_ddl = generate_insert_sql_ddl('gold',hive_schema, selected_schema.lower(), selected_table,insert_method="Incremental")
+                                
+                                # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
+                                st.code(gold_incremental_insert_ddl, language="sql")
+                                st.session_state.connection['hive_ddl'] = gold_incremental_insert_ddl
+                                download_hive_ddl('Download DDL AS Text File', gold_incremental_insert_ddl, 'gold_incremental_insert_ddl')
+
+                                try:
+                                    if st.session_state.connection['hive_conn'] != '':
+                                        if st.button("Create Table in Hive",key = 'gold_incremental_insert_ddl_button'):
+                                            cursor = st.session_state.connection['hive_conn'].cursor()
+                                            
+                                            cursor.execute(gold_incremental_insert_ddl)
+                                            
+                                            st.success('executed')
+                                except Exception as e:
+                                    st.error(f"button failed {str(e)}")
+                    
                     
                 # hive_col = st.columns(1)[0]
                 # with hive_col:
