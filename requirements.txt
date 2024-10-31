@@ -6,3 +6,4 @@ streamlit
 pandas
 cx-Oracle
 ipykernel
+psycopg2-binary
