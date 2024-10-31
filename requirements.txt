@@ -7,5 +7,4 @@ pandas
 cx-Oracle
 ipykernel
 psycopg2-binary
-libaio1 
-libaio-dev
+libaio
