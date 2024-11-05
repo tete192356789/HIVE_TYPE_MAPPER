@@ -157,8 +157,7 @@ def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_commen
         ddl += "\n)\n"
 
         partition_cols =[]
-        # ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
-        ddl += f"COMMENT 'ตารางจัดเก็บประวัติการนำเข้าข้อมูลของตาราง {table_name} จากระบบ {schema_name}'\n"
+       
         # ddl += f"PARTITIONED BY (ingyer DECIMAL(4,0) COMMENT,ingmth DECIMAL(2,0),ingday DECIMAL(2,0))\n"
         for col in list_cols:
             if col != 'ingdte':
@@ -167,6 +166,8 @@ def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_commen
         ddl += "    "
         ddl += ",\n     ".join(partition_cols)
         ddl += "\n)\n"
+        # ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
+        ddl += f"COMMENT 'ตารางจัดเก็บประวัติการนำเข้าข้อมูลของตาราง {table_name} จากระบบ {schema_name}'\n"
         ddl += f"STORED AS {stored_as}\n"
         ddl += f"LOCATION '{location}'"
         return ddl
@@ -180,17 +181,18 @@ def generate_sql_ddl(db_zone ,hive_schema, schema_name, table_name, table_commen
             if col['name'] not in partition_col_nm :
                 cols.append(f"{col['name']} {col['hive_type']} {comment}")
 
+        
         for col in list_cols:
-            if col == 'ingdte':
-                cols.append(f"{col} TIMESTAMP")
-            else:    
-                cols.append(f"{col} {list_cols[col]}")
+            if col != 'ingdte':
+                cols.append(f"{col} {list_cols[col]['type']} COMMENT '{list_cols[col]['comment']}'")
+            else:
+                cols.append(f"{col} TIMESTAMP COMMENT '{list_cols[col]['comment']}'")
         ddl += "    "
         ddl += ",\n    ".join(cols)
         ddl += "\n)\n"
 
-        ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
         ddl += f"PARTITIONED BY ()\n"
+        ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
         ddl += f"STORED AS {stored_as}\n"
         ddl += f"LOCATION '{location}'"
         return ddl
