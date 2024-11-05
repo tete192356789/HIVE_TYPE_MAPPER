@@ -1,0 +1,11 @@
+sqlalchemy
+pyhive
+thrift
+thrift_sasl
+streamlit
+pandas
+cx-Oracle
+ipykernel
+psycopg2-binary
+libaio
+pymssql
