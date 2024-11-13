@@ -9,9 +9,10 @@ import ast
 import re
 from pyhive import hive
 import os
-
+from ddl import generate_select_sql_ddl, generate_pdi_parquet_stg
 
 type_mappings_path = f'{os.path.dirname(os.path.abspath(__file__))}/type_mappings.txt'
+pdi_parquet_mapping_path = f'{os.path.dirname(os.path.abspath(__file__))}/parquet_mappings.txt'
 def read_file(file_path):
     with open(file_path, 'r') as file:
         content = file.read()
@@ -110,6 +111,7 @@ def convert_schema_to_hive(engine, inspector, db_schema, db_type):
             columns.append({
                 'name':column['name'],
                 'hive_type':hive_type,
+                'source_type':str(column['type']),
                 'comment':column['comment']}
               )
         schema[table_name] = columns
@@ -344,6 +346,7 @@ def get_hive_conn(hive_host,hive_port,hive_username,hive_password \
     return conn
 
 
+
 st.markdown(
     """
     <style>
@@ -408,7 +411,7 @@ def main():
             
             parsed_passwd  = quote_plus(password)
             connection_string = get_connection_string(db_type, host, port, username, parsed_passwd, database)
-            
+            print(connection_string)
             try:
                 engine = create_engine(connection_string)
                 st.session_state.connection['engine'] = engine
@@ -448,7 +451,7 @@ def main():
             if selected_schema:
                 inspector = inspect(st.session_state.connection['engine'])
                 hive_schema = convert_schema_to_hive(st.session_state.connection['engine'], inspector, selected_schema,db_type)
-
+                print(hive_schema)
                 # Fetch tables for the selected schema
                 tables = get_tables(st.session_state.connection['engine'], selected_schema)
                 st.session_state.connection['tables'] = tables
@@ -472,8 +475,16 @@ def main():
 
                     
                     
-                    create_tab, insert_tab = st.tabs(["Create Tab", "Insert Tab"])
-                    
+                    select_tab, create_tab, insert_tab = st.tabs(["Select Tab","Create Tab", "Insert Tab"])
+                    with select_tab:
+                        st.header("Select Hive Query")
+                        pdi_parquet_mapping = read_file(pdi_parquet_mapping_path)
+                        select_ddl = generate_pdi_parquet_stg(db_type,hive_schema, pdi_parquet_mapping, selected_table)
+                        st.code(select_ddl, language="sql")
+                        st.session_state.connection['hive_ddl'] = select_ddl
+                        download_hive_ddl('Download DDL AS Text File', select_ddl, 'select_ddl')
+
+
                     with create_tab:
                         staging_create_tab, landing_create_tab, gold_create_tab = st.tabs(["staging Tab", "landing Tab", "gold Tab"])
                         with staging_create_tab:
@@ -534,7 +545,9 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
                     with insert_tab:
-                        landing_insert_tab , gold_insert_tab= st.tabs(["Landing Insert Tab", "Gold Insert Tab"])
+                        pdi_staging_tab,landing_insert_tab , gold_insert_tab= st.tabs(["PDI Staging Tab","Landing Insert Tab", "Gold Insert Tab"])
+                        with pdi_staging_tab:
+                            st.header("Pentaho Data Integration(PDI) Staging Insert Script.")
 
                         with landing_insert_tab:
                             st.header("Insert Hive Query")

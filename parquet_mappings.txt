@@ -1,0 +1,36 @@
+{
+    "sqlserver" : 
+        {
+            'bigint': 'Int64',
+            'int': 'Int32',
+            'smallint': 'Int32',
+            'tinyint': 'Int32',
+            'decimal': 'Decimal',
+            'numeric': 'Decimal',
+            'money': 'Decimal',
+            'smallmoney': 'Decimal',
+            'float': 'Double',
+            'real': 'Float',
+            'bit': 'Boolean',
+            'char': 'UTF8',
+            'varchar': 'UTF8',
+            'text': 'UTF8',
+            'nchar': 'UTF8',
+            'nvarchar': 'UTF8',
+            'ntext': 'UTF8',
+            'binary': 'Binary',
+            'varbinary': 'Binary',
+            'image': 'Binary',
+            'date': 'Date',
+            'datetime': 'Timestamp_millis',
+            'datetime2': 'Timestamp_millis',
+            'smalldatetime': 'Timestamp_millis',
+            'datetimeoffset': 'Timestamp_millis',
+            'time': 'Time_millis',
+            'uniqueidentifier': 'UTF8',
+            'xml': 'UTF8',
+            'sql_variant': 'UTF8',
+            'geometry': 'Binary',
+            'geography': 'Binary'
+        }
+}
