@@ -45,7 +45,11 @@ def generate_pdi_parquet_stg(db_type, hive_schema, pdi_parquet_mapping, table_na
             scale = splited[1].split(',')[1].split(')')[0]
             row += f"{pdi_parquet_mapping[base]}\t{precision}\t{scale}\t\tYes\n"
         else:
-            row += f"{pdi_parquet_mapping[col['source_type'].lower()]}\t\t\t\tYes\n"
+            #this try for ex. char collate...
+            try:
+                row += f"{pdi_parquet_mapping[col['source_type'].lower()]}\t\t\t\tYes\n"
+            except:
+                row += f"UTF8\t\t\t\tYes\n"
         script += row    
     return script
         

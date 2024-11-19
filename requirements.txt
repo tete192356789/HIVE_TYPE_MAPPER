@@ -9,3 +9,4 @@ ipykernel
 psycopg2-binary
 libaio
 pymssql
+xlsxwriter

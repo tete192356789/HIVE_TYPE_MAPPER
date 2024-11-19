@@ -47,11 +47,43 @@ def download_hive_ddl(label, data, file_name):
         file_name=file_name)
     return dl_btn
 
+def get_schema_excel(df, file_name):
+    date_row = [{'source_name':'','source_type':'','target_name':'INGYER','target_type':'DECIMAL(4,0)'},
+            {'source_name':'','source_type':'','target_name':'INGMTH','target_type':'DECIMAL(2,0)'},
+            {'source_name':'','source_type':'','target_name':'INGDAY','target_type':'DECIMAL(2,0)'},
+            {'source_name':'','source_type':'','target_name':'INGDTE','target_type':'TIMESTAMP'}]
+    date_df = pd.DataFrame(date_row)
+    excel_table = df.rename(columns = {'name':'source_name','hive_type':'target_type'})
+    excel_table['target_name'] = excel_table['source_name']
+    excel_table = excel_table[['source_name','source_type','target_name','target_type']]
+    excel_table = pd.concat([excel_table,date_df],ignore_index=True)
+    with pd.ExcelWriter(f'./excel/{file_name}', engine='xlsxwriter') as writer:
+        excel_table.to_excel(writer,sheet_name=file_name,index = False)
+        workbook = writer.book
+        worksheet = writer.sheets[file_name]
+        worksheet.set_column('A:A', 20)  
+        worksheet.set_column('B:B', 15)  
+        worksheet.set_column('C:C', 20) 
+        worksheet.set_column('D:D', 15) 
+
+        last_column = chr(64 + len(df.columns)) 
+        last_row = len(df) + 1  
+        worksheet.autofilter(0, 0, last_row - 1, len(df.columns) - 1)
+
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#D3D3D3',
+            'border': 1
+        })
+        for col_num, value in enumerate(excel_table.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+
 def get_hive_type(db_type , column_type):
 
     type_mappings = read_file(type_mappings_path)
     column_type = str(column_type.__repr__()).lower()
-    print(column_type)
+    if 'char' in column_type:
+        return "STRING"
     match = re.match(r"\w+\(\s*[^)]+,\s*[^)]*\)",column_type)
     # char_match = re.findall(r'length=(\s*)(\d+)',column_type)
     # print(char_match)
@@ -411,7 +443,6 @@ def main():
             
             parsed_passwd  = quote_plus(password)
             connection_string = get_connection_string(db_type, host, port, username, parsed_passwd, database)
-            print(connection_string)
             try:
                 engine = create_engine(connection_string)
                 st.session_state.connection['engine'] = engine
@@ -451,7 +482,6 @@ def main():
             if selected_schema:
                 inspector = inspect(st.session_state.connection['engine'])
                 hive_schema = convert_schema_to_hive(st.session_state.connection['engine'], inspector, selected_schema,db_type)
-                print(hive_schema)
                 # Fetch tables for the selected schema
                 tables = get_tables(st.session_state.connection['engine'], selected_schema)
                 st.session_state.connection['tables'] = tables
@@ -470,7 +500,10 @@ def main():
                     st.write("Table Structure:")
                     df = pd.DataFrame(hive_table_schema)
                     st.dataframe(df)
-                    
+
+                    if st.button("Download Schema Excel",key='Download_excel_schema'):
+                        get_schema_excel(df, f'{selected_schema}_{selected_table}_schema.xlsx')
+                        st.success('Download Schema Excel Complete.')
             
 
                     
