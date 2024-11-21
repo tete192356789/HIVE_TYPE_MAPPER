@@ -6,7 +6,8 @@ def generate_select_sql_ddl(db_type  ,hive_schema, schema_name, table_name):
     ddl = f"SELECT \n"
     cols= []
     
-    if db_type == 'sqlserver':
+    #test for postgres env ,in real use delete postgres condition 
+    if db_type == 'sqlserver' or db_type ==  'postgres':
         for col in hive_schema[table_name]:
             if col['hive_type'] in date_cols:
                 if (col['hive_type'] == 'DATETIME') | (col['hive_type'] == 'TIMESTAMP'):
@@ -15,10 +16,11 @@ def generate_select_sql_ddl(db_type  ,hive_schema, schema_name, table_name):
                     cols.append(f"FORMAT({col['name']}, 'yyyy-MM-dd')")
             else:
                 cols.append(f"{col['name']}")
+        cols.append("FORMAT(CURRENT_TIMESTAMP, 'yyyy-MM-dd HH:mm:ss') INGDTE")
         cols.append('CAST(YEAR(CURRENT_TIMESTAMP) AS INT) INGYER')
         cols.append('CAST(MONTH(CURRENT_TIMESTAMP) AS INT) INGMTH')
         cols.append('CAST(DAY(CURRENT_TIMESTAMP) AS INT) INGDAY')
-        cols.append("FORMAT(CURRENT_TIMESTAMP, 'yyyy-MM-dd HH:mm:ss') INGDTE")
+        
         
     # for col in list_cols:
     #     cols.append(f"{col} {list_cols[col]['type']} COMMENT '{list_cols[col]['comment']}'")
