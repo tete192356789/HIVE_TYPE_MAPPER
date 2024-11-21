@@ -9,7 +9,7 @@ import ast
 import re
 from pyhive import hive
 import os
-from ddl import generate_select_sql_ddl, generate_pdi_parquet_stg
+from ddl import select_ddl_from_source, generate_pdi_parquet_stg, select_ddl_stg
 from io import BytesIO
 
 type_mappings_path = f'{os.path.dirname(os.path.abspath(__file__))}/type_mappings.txt'
@@ -557,18 +557,35 @@ def main():
                             download_hive_ddl('Download DDL AS Text File',  parquet_ddl, 'parquet_ddl')
                         except Exception as e:
                             st.error(f"button failed {str(e)}")
+
                     with select_tab:
-                        st.header("Select Hive Query")
-                        try:
-                            select_ddl = generate_select_sql_ddl(db_type,hive_schema, selected_schema.lower(), selected_table)
-                            st.code(select_ddl, language="sql")
-                            st.session_state.connection['hive_ddl'] = select_ddl
-                        except:
-                            st.code('', language="sql")
-                        try:
-                            download_hive_ddl('Download DDL AS Text File', select_ddl, 'select_ddl')
-                        except Exception as e:
-                            st.error(f"button failed {str(e)}")
+                        select_source , select_stg = st.tabs(['Select From Source','Select From Staging'])
+
+                        with select_source:
+                            st.header("Select Hive Query From Source")
+                            try:
+                                select_ddl = select_ddl_from_source(db_type,hive_schema, source_input, selected_schema.lower(), selected_table)
+                                st.code(select_ddl, language="sql")
+                                st.session_state.connection['hive_ddl'] = select_ddl
+                            except:
+                                st.code('', language="sql")
+                            try:
+                                download_hive_ddl('Download DDL AS Text File', select_ddl, 'select_ddl')
+                            except Exception as e:
+                                st.error(f"button failed {str(e)}")
+
+                        with select_stg:
+                            st.header("Select Hive Query From Staging")
+                            try:
+                                selected_stg = select_ddl_stg(db_type,hive_schema, source_input, selected_schema.lower(), selected_table)
+                                st.code(selected_stg, language="sql")
+                                st.session_state.connection['hive_ddl'] = selected_stg
+                            except:
+                                st.code('', language="sql")
+                            try:
+                                download_hive_ddl('Download DDL AS Text File', selected_stg, 'selected_stg')
+                            except Exception as e:
+                                st.error(f"button failed {str(e)}")
 
 
                     with create_tab:
