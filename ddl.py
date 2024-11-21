@@ -79,7 +79,9 @@ def generate_pdi_parquet_stg(db_type, hive_schema, pdi_parquet_mapping, table_na
             except:
                 row += f"UTF8\t\t\t\tYes\n"
         script += row    
-    script += "ingdte	ingdte	UTF8				No"
-    script += "ingyer	ingyer	Decimal	4	0		No"
+    script += "ingdte\tingdte\tUTF8\t\t\t\tNo\n"
+    script += "ingyer\tingyer\tDecimal\t4\t0\t\tNo\n"
+    script += "ingmth\tingmth\tDecimal\t2\t0\t\tNo\n"
+    script += "ingday\tingday\tDecimal\t2\t0\t\tNo\n"
     return script
         
