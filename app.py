@@ -11,6 +11,7 @@ from pyhive import hive
 import os
 from ddl import select_ddl_from_source, generate_pdi_parquet_stg, select_ddl_stg
 from io import BytesIO
+from copy import deepcopy
 
 type_mappings_path = f'{os.path.dirname(os.path.abspath(__file__))}/type_mappings.txt'
 pdi_parquet_mapping_path = f'{os.path.dirname(os.path.abspath(__file__))}/parquet_mappings.txt'
@@ -102,21 +103,6 @@ def get_hive_type(db_type , column_type):
     if 'char' in column_type:
         return "STRING"
     match = re.match(r"\w+\(\s*[^)]+,\s*[^)]*\)",column_type)
-    # char_match = re.findall(r'length=(\s*)(\d+)',column_type)
-    # print(char_match)
-    # if char_match:
-    #     # char_info = column_type.split('(')
-    #     # try:
-    #     #     str_len  = int(char_info[1].split(')')[0])
-    #     # except:
-    #     #     str_len  = int(char_info[1].split(')')[0].split('=')[1])
-    #     # type_name = char_info[0]
-    #     # return(f"{type_name.upper()}({str_len})")  
-    #     base = column_type.split('(')[0]
-    #     if base == 'nvarchar':
-    #         base = 'varchar'
-    #     length = char_match[0][1]
-    #     return f"{base.upper()}({length})"
         
     if match:
         dec_info = match.group().split('(')[1].split(',')
@@ -164,12 +150,13 @@ def convert_schema_to_hive(engine, inspector, db_schema, db_type):
                 'comment':column['comment']}
               )
         schema[table_name] = columns
-
+ 
     return schema
 
 def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name, table_comment, location , stored_as = 'PARQUET'):
     date_cols = ['TIMESTAMP','DATE']
-    edit_schema = hive_schema
+    edit_schema = deepcopy(hive_schema[table_name])
+   
     list_cols = {'ingdte':{'type':'STRING','comment':'วันเวลาที่ถ่ายโอนข้อมูลสู่ Big Data Platform'},'ingyer':{'type':'DECIMAL(4,0)','comment':'ปีที่ถ่ายโอนข้อมูลสู่ Big Data Platform'},'ingmth': {'type':'DECIMAL(2,0)','comment':'เดือนที่ถ่ายโอนข้อมูลสู่ Big Data Platform'},'ingday': {'type':'DECIMAL(2,0)','comment':'วันที่ถ่ายโอนข้อมูลสู่ Big Data Platform'}}
     if db_zone == 'staging':
         ddl = f"CREATE EXTERNAL TABLE IF NOT EXISTS staging.{source_input.lower()}_{schema_name.lower()}_{table_name.lower()} (\n"
@@ -179,12 +166,12 @@ def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name,
             comment = f"COMMENT '{col['comment']}'" if col['comment'] else ''
             if col['hive_type'] in date_cols:
                 cols.append(f"{col['name']} STRING {comment}")
-                edit_schema[table_name][i]['hive_type'] = "STRING"
+                edit_schema[i]['hive_type'] = "STRING"
             else:
                 cols.append(f"{col['name']} {col['hive_type']} {comment}")
         for col in list_cols:
             cols.append(f"{col} {list_cols[col]['type']} COMMENT '{list_cols[col]['comment']}'")
-            edit_schema[table_name].append({
+            edit_schema.append({
                 'name':f"{col}",
                 'hive_type':f"{list_cols[col]['type']}",
                 "source_type":f"",
@@ -198,6 +185,8 @@ def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name,
         ddl += f"COMMENT 'ตารางพักข้อมูลของตาราง {source_input.lower()}_{schema_name.lower()}_{table_name.lower()} จากระบบ {source_input}'\n"
         ddl += f"STORED AS {stored_as}\n"
         ddl += f"LOCATION '{location}'"
+        # print('/////////stg')
+        # print(edit_schema)
         return ddl, edit_schema
 
     if db_zone == 'landing':
@@ -210,7 +199,7 @@ def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name,
                 cols.append(f"{col['name']} {col['hive_type']} {comment}")
             if col['hive_type']  in date_cols:
                 cols.append(f"{col['name']} STRING {comment}")
-                edit_schema[table_name][i]['hive_type'] = "STRING"
+                edit_schema[i]['hive_type'] = "STRING"
         cols.append(f"{partition_col_nm[0]} STRING COMMENT 'วันเวลาที่ถ่ายโอนข้อมูลสู่ Big Data Platform'")
         ddl += "    "
         ddl += ",\n    ".join(cols)
@@ -220,7 +209,7 @@ def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name,
        
         # ddl += f"PARTITIONED BY (ingyer DECIMAL(4,0) COMMENT,ingmth DECIMAL(2,0),ingday DECIMAL(2,0))\n"
         for col in list_cols:
-            edit_schema[table_name].append({
+            edit_schema.append({
                 'name':f"{col}",
                 'hive_type':f"{list_cols[col]['type']}",
                 "source_type":f"",
@@ -236,6 +225,9 @@ def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name,
         # ddl += f"COMMENT '{table_comment['text']}'\n" if table_comment['text'] else ''
         ddl += f"STORED AS {stored_as}\n"
         ddl += f"LOCATION '{location}'"
+
+        # print('/////////landing')
+        # print(edit_schema)
         return ddl, edit_schema
     
     if db_zone == 'gold':
@@ -431,7 +423,7 @@ st.markdown(
 def main():
     st.title("Hadoop Table Migration Tool")
 
-        
+    
 
     # Use session state to persist values across reruns
     if 'connection' not in st.session_state:
@@ -512,8 +504,21 @@ def main():
                                         key='selected_schema')
             
             if selected_schema:
+
+
+                if 'hive_schema' in st.session_state:
+                    del st.session_state.hive_schema
+                
                 inspector = inspect(st.session_state.connection['engine'])
-                hive_schema = convert_schema_to_hive(st.session_state.connection['engine'], inspector, selected_schema,db_type)
+                # Store schema in session state
+                st.session_state.hive_schema = convert_schema_to_hive(
+                    st.session_state.connection['engine'], 
+                    inspector, 
+                    selected_schema,
+                    db_type
+                )
+                # inspector = inspect(st.session_state.connection['engine'])
+                # hive_schema = convert_schema_to_hive(st.session_state.connection['engine'], inspector, selected_schema,db_type)
                 tables = get_tables(st.session_state.connection['engine'], selected_schema)
                 st.session_state.connection['tables'] = tables
                 
@@ -524,11 +529,9 @@ def main():
                     source_input =  st.text_input("Input Source Name","ois")
                     st.write("Source Input : ",source_input)
 
-                    hive_table_schema = hive_schema[selected_table]
+                    hive_table_schema = st.session_state.hive_schema[selected_table]
                     table_comment = inspector.get_table_comment(schema = selected_schema,table_name = selected_table)
-                    
-                    print('########################')
-                    print(selected_table)
+             
                     
                     st.write("Table Structure:")
                     df = pd.DataFrame(hive_table_schema)
@@ -548,7 +551,7 @@ def main():
                         st.header("PDI Parquet Ouput Script Generator.")
                         try:
                             pdi_parquet_mapping = read_file(pdi_parquet_mapping_path)
-                            parquet_ddl = generate_pdi_parquet_stg(db_type,hive_schema, pdi_parquet_mapping, selected_table)
+                            parquet_ddl = generate_pdi_parquet_stg(db_type,st.session_state.hive_schema, pdi_parquet_mapping, selected_table)
                             st.code(parquet_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = parquet_ddl
                         except:
@@ -564,7 +567,7 @@ def main():
                         with select_source:
                             st.header("Select Hive Query From Source")
                             try:
-                                select_ddl = select_ddl_from_source(db_type,hive_schema, source_input, selected_schema.lower(), selected_table)
+                                select_ddl = select_ddl_from_source(db_type,st.session_state.hive_schema, source_input, selected_schema.lower(), selected_table)
                                 st.code(select_ddl, language="sql")
                                 st.session_state.connection['hive_ddl'] = select_ddl
                             except:
@@ -577,7 +580,7 @@ def main():
                         with select_stg:
                             st.header("Select Hive Query From Staging")
                             try:
-                                selected_stg = select_ddl_stg(db_type,hive_schema, source_input, selected_schema.lower(), selected_table)
+                                selected_stg = select_ddl_stg(db_type,st.session_state.hive_schema, source_input, selected_schema.lower(), selected_table)
                                 st.code(selected_stg, language="sql")
                                 st.session_state.connection['hive_ddl'] = selected_stg
                             except:
@@ -593,8 +596,10 @@ def main():
                         with staging_create_tab:
                             st.subheader("Create Staging Hive Query")
                         
-                            staging_create_ddl, edit_schema = generate_sql_ddl('staging',hive_schema,source_input, selected_schema, selected_table,table_comment, \
+                            staging_create_ddl, stg_create_edit_schema = generate_sql_ddl('staging',st.session_state.hive_schema,source_input, selected_schema, selected_table,table_comment, \
                                         location = f'/staging/{source_input.lower()}/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
+                            print('########')
+                            print(stg_create_edit_schema)
                             st.code(staging_create_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = staging_create_ddl
                             download_hive_ddl('Download DDL AS Text File', staging_create_ddl, 'staging_create_ddl')
@@ -609,16 +614,14 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
 
-                            download_schema_excel(pd.DataFrame(edit_schema[selected_table]), f'{selected_schema}_{selected_table}_schema.xlsx','excel_staging')
+                            download_schema_excel(pd.DataFrame(stg_create_edit_schema), f'{selected_schema}_{selected_table}_schema.xlsx','excel_staging')
                         with landing_create_tab:
                             st.subheader("Create Landing Hive Query")
 
-                            landing_create_ddl , edit_schema_landing= generate_sql_ddl('landing', hive_schema,source_input, selected_schema.lower(), selected_table,table_comment, \
+                            landing_create_ddl , landing_create_edit_schema = generate_sql_ddl('landing', st.session_state.hive_schema,source_input, selected_schema.lower(), selected_table,table_comment, \
                                         location = f'/landing/{source_input.lower()}/{selected_schema.lower()}/{selected_table.lower()}' , stored_as = 'PARQUET')
-                            print('////////')
-                            print(hive_schema[selected_table])
-                            print('????????')
-                            print(edit_schema_landing[selected_table])
+                            print('########')
+                            print(landing_create_edit_schema)
                             st.code(landing_create_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = landing_create_ddl
                             download_hive_ddl('Download DDL AS Text File', landing_create_ddl, 'landing_create_ddl')
@@ -633,11 +636,11 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
 
-                            download_schema_excel(pd.DataFrame(edit_schema[selected_table]), f'{selected_schema}_{selected_table}_schema.xlsx','excel_landing')
+                            download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'{selected_schema}_{selected_table}_schema.xlsx','excel_landing')
                         with gold_create_tab:
                             st.subheader("Create Gold Hive Query")
                         
-                            gold_create_ddl = generate_sql_ddl('gold',hive_schema, source_input, selected_schema.lower(), selected_table,table_comment, \
+                            gold_create_ddl = generate_sql_ddl('gold',st.session_state.hive_schema, source_input, selected_schema.lower(), selected_table,table_comment, \
                                         location = f'/gold/{source_input.lower()}/{selected_schema.lower()}_{selected_table.lower()}' , stored_as = 'PARQUET')
                             # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
                             st.code(gold_create_ddl, language="sql")
@@ -661,7 +664,7 @@ def main():
                         with landing_insert_tab:
                             st.header("Insert Hive Query")
 
-                            insert_ddl = generate_insert_sql_ddl('landing',hive_schema, source_input,selected_schema.lower(), selected_table)
+                            insert_ddl = generate_insert_sql_ddl('landing',st.session_state.hive_schema, source_input,selected_schema.lower(), selected_table)
                             # st.text_area("Hive DDL", insert_ddl, height=200)
                             st.code(insert_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = insert_ddl
@@ -682,7 +685,7 @@ def main():
                             if radio == 'Full Refresh':
                                 st.subheader("Insert Full Refresh Gold Hive Query")
                             
-                                gold_full_insert_ddl = generate_insert_sql_ddl('gold',hive_schema, source_input, selected_schema.lower(), selected_table,insert_method="Full Refresh")
+                                gold_full_insert_ddl = generate_insert_sql_ddl('gold',st.session_state.hive_schema, source_input, selected_schema.lower(), selected_table,insert_method="Full Refresh")
                                 
                                 # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
                                 st.code(gold_full_insert_ddl, language="sql")
@@ -701,7 +704,7 @@ def main():
                             else:
                                 st.subheader("Insert Incremental Gold Hive Query")
                             
-                                gold_incremental_insert_ddl = generate_insert_sql_ddl('gold',hive_schema, source_input, selected_schema.lower(), selected_table,insert_method="Incremental")
+                                gold_incremental_insert_ddl = generate_insert_sql_ddl('gold',st.session_state.hive_schema, source_input, selected_schema.lower(), selected_table,insert_method="Incremental")
                                 
                                 # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
                                 st.code(gold_incremental_insert_ddl, language="sql")
@@ -718,40 +721,7 @@ def main():
                                             st.success('executed')
                                 except Exception as e:
                                     st.error(f"button failed {str(e)}")
-                    
-                    
-                # hive_col = st.columns(1)[0]
-                # with hive_col:
-                #     hive_host =st.text_input("hive_host", key='hive_host')
-                #     hive_port =st.text_input("hive_port", key='hive_port')
-                #     hive_username =st.text_input("hive_username", key='hive_username')
-                #     hive_password =st.text_input("hive_password", key='hive_password')
-                #     hive_database =st.text_input("hive_database", key='hive_database')
-                #     hive_auth =st.text_input("hive_auth", key='hive_auth')
-
-                  
-                # if st.button("Connect to Hive."):
-                #     print(st.session_state.connection)
-                #     try:
-                #         hive_conn = get_hive_conn(hive_host,hive_port,hive_username,hive_password \
-                #             ,hive_database, hive_auth)
-                    
-                      
-                #         st.session_state.connection['hive_conn'] = hive_conn
-                     
-                #     except Exception as e:
-                #         st.error(f"Connection failed: {str(e)}")
-                # try:
-                #     if st.button("Create Table in Hive"):
-                #             cursor = st.session_state.connection['hive_conn'].cursor()
-                            
-                #             cursor.execute(st.session_state.connection['hive_ddl'])
-                            
-                #             st.success('executed')
-                # except Exception as e:
-                #     st.error(f"button failed {str(e)}")
-                    
-                
+    
                     
 
 if __name__ == "__main__":
