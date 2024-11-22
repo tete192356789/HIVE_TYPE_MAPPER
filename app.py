@@ -59,10 +59,10 @@ def get_schema_excel_bytes(df, file_name):
         excel_table = excel_table[['source_name', 'source_type', 'target_name', 'target_type']]
         excel_table = excel_table.drop_duplicates()
         
-        excel_table.to_excel(writer, sheet_name=file_name, index=False)
+        excel_table.to_excel(writer, sheet_name='sheet', index=False)
         
         workbook = writer.book
-        worksheet = writer.sheets[file_name]
+        worksheet = writer.sheets['sheet']
         
         worksheet.set_column('A:A', 20)
         worksheet.set_column('B:B', 15)
@@ -241,6 +241,12 @@ def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name,
 
         
         for col in list_cols:
+            edit_schema.append({
+                'name':f"{col}",
+                'hive_type':f"{list_cols[col]['type']}",
+                "source_type":f"",
+                'comment':f"{list_cols[col]['comment']}"
+            })
             if col != 'ingdte':
                 cols.append(f"{col} {list_cols[col]['type']} COMMENT '{list_cols[col]['comment']}'")
             else:
@@ -253,7 +259,7 @@ def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name,
         ddl += f"PARTITIONED BY ()\n"
         ddl += f"STORED AS {stored_as}\n"
         ddl += f"LOCATION '{location}'"
-        return ddl
+        return ddl , edit_schema
 
     
 def generate_insert_sql_ddl(db_zone, hive_schema,source_input, schema_name, table_name,insert_method ='Full Refresh'):
@@ -640,8 +646,10 @@ def main():
                         with gold_create_tab:
                             st.subheader("Create Gold Hive Query")
                         
-                            gold_create_ddl = generate_sql_ddl('gold',st.session_state.hive_schema, source_input, selected_schema.lower(), selected_table,table_comment, \
+                            gold_create_ddl ,gold_create_edit_schema= generate_sql_ddl('gold',st.session_state.hive_schema, source_input, selected_schema.lower(), selected_table,table_comment, \
                                         location = f'/gold/{source_input.lower()}/{selected_schema.lower()}_{selected_table.lower()}' , stored_as = 'PARQUET')
+                            print('GOLD------------')
+                            print(gold_create_edit_schema)
                             # s= st.text_area("Hive DDL", staging_create_ddl, height=200,key='create_staging')
                             st.code(gold_create_ddl, language="sql")
                             st.session_state.connection['hive_ddl'] = gold_create_ddl
@@ -656,6 +664,8 @@ def main():
                                         st.success('executed')
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
+
+                            download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'{selected_schema}_{selected_table}_schema.xlsx','excel_gold')
                     with insert_tab:
                         pdi_staging_tab,landing_insert_tab , gold_insert_tab= st.tabs(["PDI Staging Tab","Landing Insert Tab", "Gold Insert Tab"])
                         with pdi_staging_tab:
