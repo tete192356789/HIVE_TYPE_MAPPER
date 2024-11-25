@@ -620,7 +620,7 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
 
-                            download_schema_excel(pd.DataFrame(stg_create_edit_schema), f'{selected_schema}_{selected_table}_schema.xlsx','excel_staging')
+                            download_schema_excel(pd.DataFrame(stg_create_edit_schema), f'staging_{selected_schema}_{selected_table}_schema.xlsx','excel_staging')
                         with landing_create_tab:
                             st.subheader("Create Landing Hive Query")
 
@@ -642,7 +642,7 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
 
-                            download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'{selected_schema}_{selected_table}_schema.xlsx','excel_landing')
+                            download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'landing_{selected_schema}_{selected_table}_schema.xlsx','excel_landing')
                         with gold_create_tab:
                             st.subheader("Create Gold Hive Query")
                         
@@ -665,7 +665,7 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
 
-                            download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'{selected_schema}_{selected_table}_schema.xlsx','excel_gold')
+                            download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'gold_{selected_schema}_{selected_table}_schema.xlsx','excel_gold')
                     with insert_tab:
                         pdi_staging_tab,landing_insert_tab , gold_insert_tab= st.tabs(["PDI Staging Tab","Landing Insert Tab", "Gold Insert Tab"])
                         with pdi_staging_tab:
