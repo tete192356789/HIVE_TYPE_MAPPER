@@ -49,49 +49,56 @@ def download_hive_ddl(label, data, file_name):
         file_name=file_name)
     return dl_btn
 
-def get_schema_excel_bytes(df, file_name):
-    
+def write_bytes_excel(schema_list:list):
+    sheet_list = ['staging','landing','gold']
     output = BytesIO()
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        excel_table = df.rename(columns={'name': 'source_name', 'hive_type': 'target_type'})
-        excel_table['target_name'] = excel_table['source_name']
-        excel_table = excel_table[['source_name', 'source_type', 'target_name', 'target_type']]
-        excel_table = excel_table.drop_duplicates()
-        
-        excel_table.to_excel(writer, sheet_name='sheet', index=False)
-        
         workbook = writer.book
-        worksheet = writer.sheets['sheet']
-        
-        worksheet.set_column('A:A', 20)
-        worksheet.set_column('B:B', 15)
-        worksheet.set_column('C:C', 20)
-        worksheet.set_column('D:D', 15)
-        
-        last_row = len(excel_table) + 1
-        worksheet.autofilter(0, 0, last_row - 1, len(excel_table.columns) - 1)
-        
         header_format = workbook.add_format({
             'bold': True,
             'bg_color': '#D3D3D3',
             'border': 1
         })
-        
-        for col_num, value in enumerate(excel_table.columns.values):
-            worksheet.write(0, col_num, value, header_format)
+
+        for count , schema in enumerate(schema_list):
+            df = pd.DataFrame(schema)
+            excel_table = df.rename(columns={'name': 'source_name', 'hive_type': 'target_type'})
+            excel_table['target_name'] = excel_table['source_name']
+            excel_table = excel_table[['source_name', 'source_type', 'target_name', 'target_type']]
+            excel_table = excel_table.drop_duplicates()
+            
+            excel_table.to_excel(writer, sheet_name= sheet_list[count], index=False)
+            
+            worksheet = writer.sheets[sheet_list[count]]
+            
+            worksheet.set_column('A:A', 20)
+            worksheet.set_column('B:B', 15)
+            worksheet.set_column('C:C', 20)
+            worksheet.set_column('D:D', 15)
+            
+            last_row = len(excel_table) + 1
+            worksheet.autofilter(0, 0, last_row - 1, len(excel_table.columns) - 1)
+            
+            
+            
+            for col_num, value in enumerate(excel_table.columns.values):
+                worksheet.write(0, col_num, value, header_format)
     
     output.seek(0)
     
     return output.getvalue()
 
-def download_schema_excel(df, file_name, key):
+
+
+
+def download_schema_excel(schema_list:list, file_name:str, key:str):
    
-    excel_bytes = get_schema_excel_bytes(df, file_name)
+    excel_bytes = write_bytes_excel(schema_list)
     return st.download_button(
         label="Download Excel file",
         data=excel_bytes,
-        file_name=f"{file_name}.xlsx",
+        file_name= file_name,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key= key
     )
@@ -241,15 +248,22 @@ def generate_sql_ddl(db_zone ,hive_schema, source_input,schema_name, table_name,
 
         
         for col in list_cols:
-            edit_schema.append({
+            
+            if col != 'ingdte':
+                edit_schema.append({
                 'name':f"{col}",
                 'hive_type':f"{list_cols[col]['type']}",
                 "source_type":f"",
                 'comment':f"{list_cols[col]['comment']}"
-            })
-            if col != 'ingdte':
+                })  
                 cols.append(f"{col} {list_cols[col]['type']} COMMENT '{list_cols[col]['comment']}'")
             else:
+                edit_schema.append({
+                'name':f"{col}",
+                'hive_type':"TIMESTAMP",
+                "source_type":f"",
+                'comment':f"{list_cols[col]['comment']}"
+                })
                 cols.append(f"{col} TIMESTAMP COMMENT '{list_cols[col]['comment']}'")
         ddl += "    "
         ddl += ",\n    ".join(cols)
@@ -547,7 +561,7 @@ def main():
                     #     get_schema_excel(df, f'{selected_schema}_{selected_table}_schema.xlsx')
                     #     st.success('Download Schema Excel Complete.')
 
-                    download_schema_excel(df, f'{selected_schema}_{selected_table}_schema.xlsx','excel')
+                    # download_schema_excel(df, f'{selected_schema}_{selected_table}_schema.xlsx','excel')
 
                     
                     
@@ -620,7 +634,7 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
 
-                            download_schema_excel(pd.DataFrame(stg_create_edit_schema), f'staging_{selected_schema}_{selected_table}_schema.xlsx','excel_staging')
+                            # download_schema_excel(pd.DataFrame(stg_create_edit_schema), f'staging_{selected_schema}_{selected_table}_schema.xlsx','excel_staging')
                         with landing_create_tab:
                             st.subheader("Create Landing Hive Query")
 
@@ -642,7 +656,7 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
 
-                            download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'landing_{selected_schema}_{selected_table}_schema.xlsx','excel_landing')
+                            # download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'landing_{selected_schema}_{selected_table}_schema.xlsx','excel_landing')
                         with gold_create_tab:
                             st.subheader("Create Gold Hive Query")
                         
@@ -665,7 +679,13 @@ def main():
                             except Exception as e:
                                 st.error(f"button failed {str(e)}")
 
-                            download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'gold_{selected_schema}_{selected_table}_schema.xlsx','excel_gold')
+                            # download_schema_excel(pd.DataFrame(landing_create_edit_schema), f'gold_{selected_schema}_{selected_table}_schema.xlsx','excel_gold')
+                        schema_list = [stg_create_edit_schema,landing_create_edit_schema,gold_create_edit_schema]
+                        print('$$$$$$$$$$$$$$$$$$')
+                        print(schema_list)
+                        download_schema_excel(schema_list, f'{source_input}_{selected_schema}_{selected_table}_schema.xlsx','download_excel')
+        
+                    
                     with insert_tab:
                         pdi_staging_tab,landing_insert_tab , gold_insert_tab= st.tabs(["PDI Staging Tab","Landing Insert Tab", "Gold Insert Tab"])
                         with pdi_staging_tab:
@@ -731,6 +751,11 @@ def main():
                                             st.success('executed')
                                 except Exception as e:
                                     st.error(f"button failed {str(e)}")
+                    # df_list = [pd.DataFrame(stg_create_edit_schema), pd.DataFrame(landing_create_edit_schema), pd.DataFrame(gold_create_edit_schema)]
+                    # schema_list = [stg_create_edit_schema,landing_create_edit_schema,gold_create_edit_schema]
+                    # print('$$$$$$$$$$$$$$$$$$')
+                    # print(schema_list)
+                    # download_schema_excel(schema_list, f'{select_source}_{selected_schema}_{selected_table}_schema.xlsx','download_excel')
     
                     
 
