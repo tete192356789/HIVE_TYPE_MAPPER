@@ -157,6 +157,19 @@ def convert_schema_to_hive(engine, inspector, db_schema, db_type):
                 'comment':column['comment']}
               )
         schema[table_name] = columns
+
+    for table_name in inspector.get_view_names(db_schema):
+        columns = []
+        for column in inspector.get_columns(table_name = table_name, schema = db_schema):
+            hive_type = get_hive_type(db_type,column['type'])
+            columns.append({
+                'name':column['name'],
+                'hive_type':hive_type,
+                'source_type':str(column['type']),
+                'comment':column['comment']}
+              )
+        schema[table_name] = columns
+ 
  
     return schema
 
